@@ -21,6 +21,9 @@ $(EXEC): $(OBJS)
 check: $(EXEC)
 	@./$(EXEC)
 
+simple: 
+	$(CC) -Wall -Wextra -o simple ringbuffer.c simple.c
+
 clean:
 	$(RM) $(EXEC) $(OBJS) $(deps)
 
