@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <stdatomic.h>
 
 #include "ringbuffer.h"
 
@@ -305,6 +306,38 @@ static inline int ringbuffer_sc_do_dequeue(ringbuf_t *r,
     return 0;
 }
 
+/* internal dequeue multiple element (multiple consumer safe)*/
+static inline int ringbuffer_mc_do_dequeue(ringbuf_t *r,
+                                           void **obj_table,
+                                           const unsigned n)
+{
+    uint32_t mask = r->prod.mask;
+    uint32_t cons_head;
+retry:
+    cons_head = atomic_load(&r->cons.head);
+    uint32_t prod_tail = atomic_load(&r->prod.tail);
+    /* The subtraction is done between two unsigned 32-bits value (the result
+     * is always modulo 32 bits even if we have cons_head > prod_tail). So
+     * @entries is always between 0 and size(ring) - 1.
+     */
+    uint32_t entries = prod_tail - cons_head;
+
+    if (n > entries)
+        return -ENOENT;
+
+    uint32_t cons_next = cons_head + n;
+    if(!atomic_compare_exchange_strong(&r->cons.head, &cons_head, cons_next))
+        goto retry;
+
+    /* copy in table */
+    DEQUEUE_PTRS();
+    __compiler_barrier();
+
+    while(!atomic_compare_exchange_weak(&r->cons.tail, &cons_head, cons_next)) ;
+    
+    return 0;
+}
+
 /**
  * Enqueue one object on a ring buffer (NOT multi-producers safe).
  *
@@ -340,6 +373,10 @@ int ringbuf_sc_dequeue(ringbuf_t *r, void **obj_p)
     return ringbuffer_sc_do_dequeue(r, obj_p, 1);
 }
 
+int ringbuf_mc_dequeue(ringbuf_t *r, void **obj_p)
+{
+    return ringbuffer_mc_do_dequeue(r, obj_p, 1);
+}
 /**
  * Test if a ring buffer is full.
  *

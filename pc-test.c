@@ -27,7 +27,7 @@ static void test_basic_operations()
         }
         assert(ringbuf_is_empty(r) == false);
         {
-            result = ringbuf_sc_dequeue(r, &out);
+            result = ringbuf_mc_dequeue(r, &out);
             assert(result == 0);
         }
         assert(*(int *) &out == in);
@@ -45,7 +45,7 @@ static void test_basic_operations()
     /* pop many items */
     for (int i = 0; i < RING_SIZE - 1; ++i) {
         void *out;
-        result = ringbuf_sc_dequeue(r, &out);
+        result = ringbuf_mc_dequeue(r, &out);
         assert(result == 0);
         assert(*(int *) &out == i);
     }
@@ -56,6 +56,7 @@ static void test_basic_operations()
 
 # define THREAD_COUNT (50 * 1.5 * 1000 * 100)
 # define PRODUCER_COUNT 1
+# define CONSUMER_COUNT 2
 
 typedef struct __RingTest {
     atomic_int consumer_count;
@@ -70,7 +71,7 @@ static void *test_consumer(void *arg)
         if (!ringbuf_is_empty(test->r)) {
             void *out;
             atomic_fetch_add(&test->consumer_count, 1);
-            int result = ringbuf_sc_dequeue(test->r, &out);
+            int result = ringbuf_mc_dequeue(test->r, &out);
             assert(result == 0);
         }
     }
@@ -102,11 +103,11 @@ static void stress_test()
     assert(test.r);
 
     /* thread creation */
-    pthread_t consumer;
+    pthread_t consumers[CONSUMER_COUNT];
     pthread_t producers[PRODUCER_COUNT];
-    {
-        int p_result = 
-            pthread_create(&consumer, NULL, test_consumer, &test);
+    for (int i = 0; i < CONSUMER_COUNT; ++i) {
+        int p_result = pthread_create(&consumers[i], NULL, 
+                test_consumer, &test);
         assert(p_result == 0);
     }
     for (int i = 0; i < PRODUCER_COUNT; ++i) {
@@ -119,8 +120,8 @@ static void stress_test()
         int p_result = pthread_join(producers[i], NULL);
         assert(p_result == 0);
     }
-    {
-        int p_result = pthread_join(consumer, NULL);
+    for (int i = 0; i < CONSUMER_COUNT; ++i) {
+        int p_result = pthread_join(consumers[i], NULL);
         assert(p_result == 0);
     }
 
